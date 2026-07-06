@@ -1,5 +1,7 @@
 import json
 import os
+import math
+import random
 import tkinter as tk
 from tkinter import font as tkfont
 from tkinter import messagebox
@@ -7,7 +9,7 @@ from datetime import datetime, date
 import uuid
 
 APP_TITLE = "Tasketo"
-DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks.json")
+DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasketo_data.json")
 
 PRIORITIES = ["Low", "Medium", "High"]
 PRIORITY_COLORS = {"Low": "#10b981", "Medium": "#f59e0b", "High": "#ef4444"}
@@ -22,35 +24,46 @@ CATEGORY_COLORS = {
     "Other": "#8b5cf6",
 }
 
-LIGHT = {
-    "bg": "#f4f5f7",
-    "surface": "#ffffff",
-    "surface_alt": "#eef0f4",
-    "text": "#1f2430",
-    "text_dim": "#6b7280",
-    "accent": "#4f46e5",
-    "accent_hover": "#4338ca",
-    "border": "#e2e4e9",
-    "danger": "#ef4444",
-    "done_text": "#9ca3af",
-}
+CONFETTI_COLORS = ["#f43f5e", "#f59e0b", "#10b981", "#3b82f6", "#a855f7", "#ec4899", "#22d3ee"]
 
-DARK = {
-    "bg": "#111318",
-    "surface": "#1b1e27",
-    "surface_alt": "#232735",
-    "text": "#e7e9ee",
-    "text_dim": "#8b90a0",
-    "accent": "#818cf8",
-    "accent_hover": "#a5b4fc",
-    "border": "#2b2f3d",
-    "danger": "#f87171",
-    "done_text": "#5b5f6d",
+# ---- Accent themes: pick a vibe ----
+ACCENTS = [
+    {"name": "Indigo",  "accent": "#6366f1", "hover": "#4f46e5", "glow": "#a5b4fc", "grad": "#312e81"},
+    {"name": "Pink",    "accent": "#ec4899", "hover": "#db2777", "glow": "#f9a8d4", "grad": "#831843"},
+    {"name": "Emerald", "accent": "#10b981", "hover": "#059669", "glow": "#6ee7b7", "grad": "#064e3b"},
+    {"name": "Amber",   "accent": "#f59e0b", "hover": "#d97706", "glow": "#fde68a", "grad": "#78350f"},
+    {"name": "Sky",     "accent": "#0ea5e9", "hover": "#0284c7", "glow": "#7dd3fc", "grad": "#0c4a6e"},
+]
+
+LIGHT_BASE = {
+    "bg": "#f4f5f7", "surface": "#ffffff", "surface_alt": "#eef0f4",
+    "text": "#1f2430", "text_dim": "#6b7280", "border": "#e2e4e9",
+    "danger": "#ef4444", "done_text": "#9ca3af", "shadow": "#d7d9e0",
+}
+DARK_BASE = {
+    "bg": "#0d0f14", "surface": "#171a23", "surface_alt": "#1f232f",
+    "text": "#e7e9ee", "text_dim": "#8b90a0", "border": "#2b2f3d",
+    "danger": "#f87171", "done_text": "#565b6b", "shadow": "#000000",
 }
 
 
 def gen_id():
     return uuid.uuid4().hex[:10]
+
+
+def hex_to_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(rgb):
+    return "#%02x%02x%02x" % tuple(max(0, min(255, int(c))) for c in rgb)
+
+
+def lerp_color(c1, c2, t):
+    r1, g1, b1 = hex_to_rgb(c1)
+    r2, g2, b2 = hex_to_rgb(c2)
+    return rgb_to_hex((r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t))
 
 
 class Task:
@@ -60,16 +73,14 @@ class Task:
         self.text = text
         self.category = category
         self.priority = priority
-        self.due = due  # "YYYY-MM-DD" or ""
+        self.due = due
         self.done = done
         self.created = created or datetime.now().isoformat()
 
     def to_dict(self):
-        return {
-            "id": self.id, "text": self.text, "category": self.category,
-            "priority": self.priority, "due": self.due, "done": self.done,
-            "created": self.created,
-        }
+        return {"id": self.id, "text": self.text, "category": self.category,
+                "priority": self.priority, "due": self.due, "done": self.done,
+                "created": self.created}
 
     @staticmethod
     def from_dict(d):
@@ -79,9 +90,9 @@ class Task:
 
 
 class RoundedButton(tk.Canvas):
-    """A simple flat 'pill' button drawn on a canvas for a softer look than ttk defaults."""
+    """Flat pill button with a soft glow on hover."""
 
-    def __init__(self, parent, text, command, bg, fg, hover_bg=None,
+    def __init__(self, parent, text, command, bg, fg, hover_bg=None, glow=None,
                  width=90, height=34, radius=17, font=None):
         super().__init__(parent, width=width, height=height, bg=parent["bg"],
                           highlightthickness=0, bd=0, cursor="hand2")
@@ -89,53 +100,65 @@ class RoundedButton(tk.Canvas):
         self.bg_color = bg
         self.hover_color = hover_bg or bg
         self.fg_color = fg
+        self.glow = glow
         self.width, self.height, self.radius = width, height, radius
         self.font = font or ("Segoe UI", 10, "bold")
         self.text = text
         self._draw(self.bg_color)
         self.bind("<Button-1>", lambda e: self.command())
-        self.bind("<Enter>", lambda e: self._draw(self.hover_color))
-        self.bind("<Leave>", lambda e: self._draw(self.bg_color))
+        self.bind("<Enter>", lambda e: self._draw(self.hover_color, True))
+        self.bind("<Leave>", lambda e: self._draw(self.bg_color, False))
 
     def _round_rect(self, x1, y1, x2, y2, r, **kw):
-        points = [x1+r, y1, x2-r, y1, x2, y1, x2, y1+r, x2, y2-r, x2, y2,
-                  x2-r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y1+r, x1, y1]
+        points = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+                  x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
         return self.create_polygon(points, smooth=True, **kw)
 
-    def _draw(self, color):
+    def _draw(self, color, hovered=False):
         self.delete("all")
-        self._round_rect(1, 1, self.width-1, self.height-1, self.radius, fill=color, outline="")
-        self.create_text(self.width/2, self.height/2, text=self.text,
+        if hovered and self.glow:
+            self._round_rect(0, 0, self.width, self.height, self.radius + 2,
+                              fill=self.glow, outline="")
+        self._round_rect(1, 1, self.width - 1, self.height - 1, self.radius, fill=color, outline="")
+        self.create_text(self.width / 2, self.height / 2, text=self.text,
                           fill=self.fg_color, font=self.font)
 
-    def set_bg(self, parent_bg):
-        self.configure(bg=parent_bg)
 
-
-class TodoApp(tk.Tk):
+class Tasketo(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(APP_TITLE)
-        self.geometry("880x680")
-        self.minsize(720, 560)
+        self.title(f"{APP_TITLE}")
+        self.geometry("900x720")
+        self.minsize(740, 580)
 
         self.dark_mode = False
-        self.theme = LIGHT
+        self.accent_idx = 0
         self.tasks = []
         self.categories = list(DEFAULT_CATEGORIES)
         self.filter_mode = "All"
-        self.sort_mode = "Priority"
         self.search_text = ""
         self._last_deleted = None
-        self.row_widgets = {}
+        self._current_pct = 0.0
 
-        self.configure(bg=self.theme["bg"])
-        self._build_fonts()
         self._load()
+        self._rebuild_theme()
+        self._build_fonts()
+        self.configure(bg=self.theme["bg"])
         self._build_ui()
         self._refresh()
 
         self.bind("<Control-z>", lambda e: self._undo_delete())
+
+    # ---------- theme ----------
+    def _rebuild_theme(self):
+        base = DARK_BASE if self.dark_mode else LIGHT_BASE
+        acc = ACCENTS[self.accent_idx]
+        self.theme = dict(base)
+        self.theme["accent"] = acc["accent"]
+        self.theme["accent_hover"] = acc["hover"]
+        self.theme["glow"] = acc["glow"]
+        self.theme["grad"] = acc["grad"]
+        self.accent_name = acc["name"]
 
     # ---------- persistence ----------
     def _load(self):
@@ -146,14 +169,14 @@ class TodoApp(tk.Tk):
                 self.tasks = [Task.from_dict(d) for d in data.get("tasks", [])]
                 self.categories = data.get("categories", DEFAULT_CATEGORIES)
                 self.dark_mode = data.get("dark_mode", False)
-                self.theme = DARK if self.dark_mode else LIGHT
+                self.accent_idx = data.get("accent_idx", 0) % len(ACCENTS)
             except Exception:
                 self.tasks = []
         else:
             self.tasks = [
-                Task("Welcome to Tasketo! Double-click me to edit.", "Personal", "Medium"),
-                Task("Check off tasks by clicking the circle", "Personal", "Low"),
-                Task("Try adding a task with a due date below", "Work", "High",
+                Task("Welcome to Tasketo! Double-click a task to edit it.", "Personal", "Medium"),
+                Task("Tap the circle to check things off ✔", "Personal", "Low"),
+                Task("Try the accent dots up top — pick your vibe 🎨", "Work", "High",
                      due=date.today().isoformat()),
             ]
 
@@ -164,13 +187,15 @@ class TodoApp(tk.Tk):
                     "tasks": [t.to_dict() for t in self.tasks],
                     "categories": self.categories,
                     "dark_mode": self.dark_mode,
+                    "accent_idx": self.accent_idx,
                 }, f, indent=2)
         except Exception as e:
             print("Save failed:", e)
 
     # ---------- fonts ----------
     def _build_fonts(self):
-        self.f_title = tkfont.Font(family="Segoe UI", size=20, weight="bold")
+        self.f_logo = tkfont.Font(family="Segoe UI", size=22, weight="bold")
+        self.f_tag = tkfont.Font(family="Segoe UI", size=9, weight="bold")
         self.f_h2 = tkfont.Font(family="Segoe UI", size=11, weight="bold")
         self.f_body = tkfont.Font(family="Segoe UI", size=11)
         self.f_small = tkfont.Font(family="Segoe UI", size=9)
@@ -180,25 +205,16 @@ class TodoApp(tk.Tk):
     def _build_ui(self):
         t = self.theme
 
-        # ===== Header =====
-        header = tk.Frame(self, bg=t["bg"])
-        header.pack(fill="x", padx=24, pady=(20, 10))
-
-        tk.Label(header, text="✓ Tasketo", font=self.f_title,
-                 bg=t["bg"], fg=t["accent"]).pack(side="left")
-
-        self.theme_btn = RoundedButton(
-            header, "🌙 Dark" if not self.dark_mode else "☀️ Light",
-            self._toggle_theme, bg=t["surface_alt"], fg=t["text"],
-            hover_bg=t["border"], width=100, height=34, radius=17,
-            font=("Segoe UI", 10))
-        self.theme_btn.pack(side="right")
+        # ===== Gradient hero header =====
+        hero_h = 92
+        self.hero = tk.Canvas(self, height=hero_h, highlightthickness=0, bd=0)
+        self.hero.pack(fill="x")
+        self.hero.bind("<Configure>", lambda e: self._paint_hero())
 
         # ===== Add-task card =====
         add_card = tk.Frame(self, bg=t["surface"], highlightbackground=t["border"],
                              highlightthickness=1)
-        add_card.pack(fill="x", padx=24, pady=8)
-        self._add_card = add_card
+        add_card.pack(fill="x", padx=24, pady=(16, 8))
 
         inner = tk.Frame(add_card, bg=t["surface"])
         inner.pack(fill="x", padx=16, pady=14)
@@ -208,9 +224,8 @@ class TodoApp(tk.Tk):
                                bg=t["surface_alt"], fg=t["text"], relief="flat",
                                insertbackground=t["text"])
         self.entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 8))
-        self.entry.insert(0, "")
         self.entry.bind("<Return>", lambda e: self._add_task())
-        self._placeholder(self.entry, "What needs to be done?", t)
+        self._placeholder(self.entry, "What's the move? ✏️", t)
 
         self.cat_var = tk.StringVar(value=self.categories[0])
         cat_menu = tk.OptionMenu(inner, self.cat_var, *self.categories)
@@ -230,16 +245,14 @@ class TodoApp(tk.Tk):
         self._placeholder(due_entry, "YYYY-MM-DD", t)
         self.due_entry = due_entry
 
-        add_btn = RoundedButton(inner, "+ Add", self._add_task, bg=t["accent"],
-                                 fg="#ffffff", hover_bg=t["accent_hover"],
+        add_btn = RoundedButton(inner, "+ Add", self._add_task, bg=t["accent"], fg="#ffffff",
+                                 hover_bg=t["accent_hover"], glow=t["glow"],
                                  width=90, height=36, radius=18)
         add_btn.pack(side="left", padx=(8, 0))
-        self.add_btn = add_btn
 
         # ===== Filter / search bar =====
         filt = tk.Frame(self, bg=t["bg"])
         filt.pack(fill="x", padx=24, pady=(4, 6))
-        self._filt = filt
 
         self.search_var = tk.StringVar()
         search_entry = tk.Entry(filt, textvariable=self.search_var, font=self.f_body,
@@ -266,7 +279,7 @@ class TodoApp(tk.Tk):
         self._style_optionmenu(sort_menu, t, small=True)
         sort_menu.pack(side="left", padx=(6, 0))
 
-        # ===== Task list (scrollable) =====
+        # ===== Task list =====
         list_container = tk.Frame(self, bg=t["bg"])
         list_container.pack(fill="both", expand=True, padx=24, pady=(0, 6))
 
@@ -286,17 +299,79 @@ class TodoApp(tk.Tk):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
-        # ===== Footer: stats + progress =====
+        # ===== Footer =====
         footer = tk.Frame(self, bg=t["bg"])
         footer.pack(fill="x", padx=24, pady=(0, 18))
-        self._footer = footer
 
         self.stats_label = tk.Label(footer, font=self.f_small, bg=t["bg"], fg=t["text_dim"])
         self.stats_label.pack(side="left")
 
-        self.progress_bg = tk.Canvas(footer, height=8, bg=t["bg"], highlightthickness=0)
+        self.progress_bg = tk.Canvas(footer, height=10, bg=t["bg"], highlightthickness=0)
         self.progress_bg.pack(side="right", fill="x", expand=True, padx=(16, 0))
-        self.progress_bg.bind("<Configure>", lambda e: self._draw_progress())
+        self.progress_bg.bind("<Configure>", lambda e: self._paint_progress(self._current_pct))
+
+        self._paint_hero()
+
+    def _paint_hero(self):
+        c = self.hero
+        c.delete("all")
+        t = self.theme
+        w = c.winfo_width() or 900
+        h = int(c["height"]) if c["height"] else 92
+        h = 92
+        c.configure(bg=t["grad"])
+        steps = 60
+        for i in range(steps):
+            frac = i / steps
+            color = lerp_color(t["grad"], t["accent"], frac ** 1.4)
+            x0 = int(w * i / steps)
+            x1 = int(w * (i + 1) / steps) + 1
+            c.create_rectangle(x0, 0, x1, h, fill=color, outline="")
+
+        # glowing logo mark
+        c.create_oval(24, 24, 68, 68, fill=t["glow"], outline="")
+        c.create_oval(30, 30, 62, 62, fill=t["accent"], outline="")
+        c.create_text(46, 46, text="⚡", font=("Segoe UI", 18, "bold"), fill="#ffffff")
+
+        c.create_text(80, 32, text=APP_TITLE, font=self.f_logo, fill="#ffffff", anchor="w")
+        c.create_text(81, 60, text=f"Small wins, every day  ·  {self.accent_name} mode",
+                      font=self.f_small, fill="#e5e7ffcc" if False else "#e9e9ff", anchor="w")
+
+        # accent swatches (clickable dots)
+        dot_r = 9
+        start_x = w - 210
+        for i, acc in enumerate(ACCENTS):
+            cx = start_x + i * 26
+            cy = 30
+            outline = "#ffffff" if i == self.accent_idx else ""
+            width = 2 if i == self.accent_idx else 0
+            tag = f"swatch_{i}"
+            c.create_oval(cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r,
+                          fill=acc["accent"], outline=outline, width=width, tags=tag)
+            c.tag_bind(tag, "<Button-1>", lambda e, idx=i: self._set_accent(idx))
+
+        # theme toggle
+        toggle_x = w - 40
+        c.create_text(toggle_x, 30, text="☀️" if self.dark_mode else "🌙",
+                      font=("Segoe UI", 14), tags="theme_toggle")
+        c.tag_bind("theme_toggle", "<Button-1>", lambda e: self._toggle_theme())
+
+        # streak / completed badge
+        done_count = len([x for x in self.tasks if x.done])
+        c.create_text(w - 210, 62, text=f"🔥 {done_count} completed all-time",
+                      font=self.f_small, fill="#f1f1ffcc" if False else "#f0f0ff", anchor="w")
+
+        for i in range(len(ACCENTS)):
+            c.tag_bind(f"swatch_{i}", "<Enter>", lambda e: c.configure(cursor="hand2"))
+            c.tag_bind(f"swatch_{i}", "<Leave>", lambda e: c.configure(cursor=""))
+        c.tag_bind("theme_toggle", "<Enter>", lambda e: c.configure(cursor="hand2"))
+        c.tag_bind("theme_toggle", "<Leave>", lambda e: c.configure(cursor=""))
+
+    def _set_accent(self, idx):
+        self.accent_idx = idx
+        self._save()
+        self._rebuild_theme()
+        self._rebuild_all()
 
     def _placeholder(self, widget, text, t):
         widget.config(fg=t["text_dim"])
@@ -348,12 +423,16 @@ class TodoApp(tk.Tk):
         self._save()
         self._refresh()
 
-    def _toggle_done(self, task_id):
+    def _toggle_done(self, task_id, widget=None):
+        becoming_done = False
         for t in self.tasks:
             if t.id == task_id:
                 t.done = not t.done
+                becoming_done = t.done
         self._save()
         self._refresh()
+        if becoming_done and widget is not None:
+            self._celebrate(widget)
 
     def _delete_task(self, task_id):
         for i, t in enumerate(self.tasks):
@@ -371,6 +450,59 @@ class TodoApp(tk.Tk):
             self._last_deleted = None
             self._save()
             self._refresh()
+
+    def _celebrate(self, widget):
+        """Little confetti burst near the checkbox that was just completed."""
+        try:
+            self.update_idletasks()
+            x = widget.winfo_rootx() + widget.winfo_width() // 2
+            y = widget.winfo_rooty() + widget.winfo_height() // 2
+        except Exception:
+            return
+        size = 140
+        pop = tk.Toplevel(self)
+        pop.overrideredirect(True)
+        try:
+            pop.attributes("-topmost", True)
+        except Exception:
+            pass
+        pop.geometry(f"{size}x{size}+{x - size // 2}+{y - size // 2}")
+        bgc = self.theme["bg"]
+        try:
+            pop.configure(bg=bgc)
+            pop.attributes("-transparentcolor", bgc)
+        except Exception:
+            pass
+        cv = tk.Canvas(pop, width=size, height=size, bg=bgc, highlightthickness=0)
+        cv.pack()
+        cx, cy = size / 2, size / 2
+        particles = []
+        for _ in range(16):
+            ang = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(2.0, 5.0)
+            dx, dy = speed * math.cos(ang), speed * math.sin(ang)
+            r = random.uniform(2.5, 4.5)
+            item = cv.create_oval(cx - r, cy - r, cx + r, cy + r,
+                                   fill=random.choice(CONFETTI_COLORS), outline="")
+            particles.append([item, dx, dy])
+
+        frame = [0]
+
+        def step():
+            frame[0] += 1
+            for p in particles:
+                cv.move(p[0], p[1], p[2])
+                p[2] += 0.18
+                p[1] *= 0.96
+            if frame[0] < 20:
+                pop.after(28, step)
+            else:
+                try:
+                    pop.destroy()
+                except Exception:
+                    pass
+
+        step()
 
     def _edit_task_inline(self, task):
         t = self.theme
@@ -435,7 +567,8 @@ class TodoApp(tk.Tk):
         btn_row = tk.Frame(win, bg=t["surface"])
         btn_row.pack(fill="x", pady=14)
         RoundedButton(btn_row, "Save", save_and_close, bg=t["accent"], fg="#fff",
-                      hover_bg=t["accent_hover"], width=100, height=34).pack(side="right", padx=16)
+                      hover_bg=t["accent_hover"], glow=t["glow"], width=100, height=34).pack(
+            side="right", padx=16)
         RoundedButton(btn_row, "Cancel", win.destroy, bg=t["surface_alt"], fg=t["text"],
                       hover_bg=t["border"], width=90, height=34).pack(side="right")
 
@@ -456,8 +589,8 @@ class TodoApp(tk.Tk):
 
     def _toggle_theme(self):
         self.dark_mode = not self.dark_mode
-        self.theme = DARK if self.dark_mode else LIGHT
         self._save()
+        self._rebuild_theme()
         self._rebuild_all()
 
     def _rebuild_all(self):
@@ -483,8 +616,8 @@ class TodoApp(tk.Tk):
             tasks.sort(key=lambda t: (t.done, PRIORITY_ORDER.get(t.priority, 1)))
         elif sort_mode == "Due Date":
             tasks.sort(key=lambda t: (t.done, t.due == "", t.due))
-        else:  # Newest
-            tasks.sort(key=lambda t: (t.done, t.created), reverse=False)
+        else:
+            tasks.sort(key=lambda t: (t.done, t.created))
         return tasks
 
     def _refresh(self):
@@ -509,22 +642,31 @@ class TodoApp(tk.Tk):
 
         total = len(self.tasks)
         done = len([x for x in self.tasks if x.done])
-        pct = int((done / total) * 100) if total else 0
-        self.stats_label.config(text=f"{done}/{total} completed  ·  {pct}%")
-        self._draw_progress(pct)
+        pct = (done / total * 100) if total else 0
+        self.stats_label.config(text=f"{done}/{total} completed  ·  {int(pct)}%")
+        self._animate_progress(pct)
+        self._paint_hero()
 
-    def _draw_progress(self, pct=None):
-        if pct is None:
-            total = len(self.tasks)
-            done = len([x for x in self.tasks if x.done])
-            pct = int((done / total) * 100) if total else 0
+    def _animate_progress(self, target):
+        diff = target - self._current_pct
+        if abs(diff) < 0.6:
+            self._current_pct = target
+            self._paint_progress(target)
+            return
+        self._current_pct += diff * 0.25
+        self._paint_progress(self._current_pct)
+        self.after(16, lambda: self._animate_progress(target))
+
+    def _paint_progress(self, pct):
         self.progress_bg.delete("all")
         w = self.progress_bg.winfo_width() or 400
-        h = 8
+        h = 10
         t = self.theme
         self.progress_bg.create_rectangle(0, 0, w, h, fill=t["surface_alt"], outline="")
-        fill_w = max(4, int(w * pct / 100)) if pct else 0
+        fill_w = max(0, int(w * pct / 100))
         if fill_w:
+            # soft glow behind the fill
+            self.progress_bg.create_rectangle(0, -2, fill_w, h + 2, fill=t["glow"], outline="")
             self.progress_bg.create_rectangle(0, 0, fill_w, h, fill=t["accent"], outline="")
 
     def _render_row(self, task):
@@ -536,11 +678,25 @@ class TodoApp(tk.Tk):
             except ValueError:
                 overdue = False
 
-        card = tk.Frame(self.list_frame, bg=t["surface"], highlightbackground=t["border"],
-                         highlightthickness=1)
-        card.pack(fill="x", pady=5)
+        # shadow layer for a floating-card feel
+        wrapper = tk.Frame(self.list_frame, bg=t["bg"])
+        wrapper.pack(fill="x", pady=5)
+        shadow = tk.Frame(wrapper, bg=t["shadow"])
+        shadow.place(x=3, y=3, relwidth=1, relheight=1)
 
-        # priority strip
+        card = tk.Frame(wrapper, bg=t["surface"], highlightbackground=t["border"],
+                         highlightthickness=1)
+        card.pack(fill="x")
+
+        def on_enter(e):
+            card.config(highlightbackground=t["accent"], highlightthickness=2)
+
+        def on_leave(e):
+            card.config(highlightbackground=t["border"], highlightthickness=1)
+
+        card.bind("<Enter>", on_enter)
+        card.bind("<Leave>", on_leave)
+
         strip = tk.Frame(card, bg=PRIORITY_COLORS.get(task.priority, t["border"]), width=5)
         strip.pack(side="left", fill="y")
 
@@ -550,16 +706,14 @@ class TodoApp(tk.Tk):
         top_row = tk.Frame(body, bg=t["surface"])
         top_row.pack(fill="x")
 
-        # checkbox circle
         chk = tk.Canvas(top_row, width=22, height=22, bg=t["surface"], highlightthickness=0,
                          cursor="hand2")
         color = t["accent"] if task.done else t["border"]
-        chk.create_oval(3, 3, 19, 19, outline=color, width=2,
-                         fill=t["accent"] if task.done else "")
+        chk.create_oval(3, 3, 19, 19, outline=color, width=2, fill=t["accent"] if task.done else "")
         if task.done:
             chk.create_line(7, 11, 10, 15, 15, 6, fill="#ffffff", width=2)
         chk.pack(side="left", padx=(0, 10))
-        chk.bind("<Button-1>", lambda e: self._toggle_done(task.id))
+        chk.bind("<Button-1>", lambda e, w=chk: self._toggle_done(task.id, w))
 
         label_font = self.f_strike if task.done else self.f_body
         label_fg = t["done_text"] if task.done else t["text"]
@@ -567,7 +721,6 @@ class TodoApp(tk.Tk):
                         anchor="w", justify="left", wraplength=440)
         lbl.pack(side="left", fill="x", expand=True)
         lbl.bind("<Double-Button-1>", lambda e: self._edit_task_inline(task))
-        chk.bind("<Enter>", lambda e: None)
 
         del_btn = tk.Label(top_row, text="🗑", font=self.f_small, bg=t["surface"],
                             fg=t["text_dim"], cursor="hand2")
@@ -583,7 +736,6 @@ class TodoApp(tk.Tk):
         edit_btn.bind("<Enter>", lambda e: edit_btn.config(fg=t["accent"]))
         edit_btn.bind("<Leave>", lambda e: edit_btn.config(fg=t["text_dim"]))
 
-        # meta row: category pill + due date
         meta = tk.Frame(body, bg=t["surface"])
         meta.pack(fill="x", pady=(6, 0), padx=(32, 0))
 
@@ -604,5 +756,5 @@ class TodoApp(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = TodoApp()
+    app = Tasketo()
     app.mainloop()
