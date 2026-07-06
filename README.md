@@ -46,4 +46,4 @@ brew install python-tk
 
 ### just edit the files and run `build.py`, you will find your version in `dist` folder !
 
-Alternatively, you can download the release and simply double-click the file to start using it immediately!
+Alternatively, you can download the [Release](https://github.com/timodev96-alt/Tasketo/releases/download/Tasketo/Tasketo.exe) and simply double-click the file to start using it immediately!
