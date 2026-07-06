@@ -1,6 +1,6 @@
 # Tasketo
 
-### A python spical To-Do-List app with cool desgin !
+### A python special To-Do-List app with cool design!
 
 I learnd basics of Tkinter lib in Python to make the UI and ***With help from AI in the front end***. Besides that I did make the backend and how the app saves your tasks as JSON file so you can reach them after closing the app alone,
 
@@ -8,8 +8,11 @@ I learnd basics of Tkinter lib in Python to make the UI and ***With help from AI
 
 * **Add tasks** with a category, a priority level, and an optional due date
 * **Check them off** and watch a little confetti burst fly out — genuinely satisfying, not gonna apologize for it
-* **Search and filter** — All / Active / Completed, plus a live search bar
-* **Sort** by priority, due date, or newest-first
+* **Search and filter** — All / Today / Starred / Active / Completed, plus a live search bar
+* **Sort** by starred items, priority, due date, or newest-first
+* **Star tasks** to keep important items at the top
+* **Add custom categories** on the fly with the "+ Cat" button
+* **Clear completed tasks** with one click
 * **Edit anything** by double-clicking a task
 * **Undo a delete** with Ctrl+Z if you're trigger-happy with the trash icon
 * **Overdue tasks** quietly turn red so you can't pretend you didn't see them

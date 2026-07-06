@@ -1,1 +1,5 @@
 tasketo_data.json
+__pycache__/
+dist/
+build/
+Tasketo.spec

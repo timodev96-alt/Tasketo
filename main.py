@@ -3,13 +3,21 @@ import os
 import math
 import random
 import tkinter as tk
+import platform
 from tkinter import font as tkfont
 from tkinter import messagebox
 from datetime import datetime, date
 import uuid
 
 APP_TITLE = "Tasketo"
-DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasketo_data.json")
+if platform.system() == "Windows":
+    base_path = os.getenv('APPDATA')
+    base_path = os.path.join(base_path, "Tasketo")
+else:
+    base_path = os.path.expanduser("~/.tasketo")
+if not os.path.exists(base_path):
+    os.makedirs(base_path)
+DATA_FILE = os.path.join(base_path, "tasketo_data.json")
 
 PRIORITIES = ["Low", "Medium", "High"]
 PRIORITY_COLORS = {"Low": "#10b981", "Medium": "#f59e0b", "High": "#ef4444"}
@@ -68,25 +76,27 @@ def lerp_color(c1, c2, t):
 
 class Task:
     def __init__(self, text, category="Personal", priority="Medium",
-                 due="", done=False, created=None, task_id=None):
+                 due="", done=False, starred=False, created=None, task_id=None):
         self.id = task_id or gen_id()
         self.text = text
         self.category = category
         self.priority = priority
         self.due = due
         self.done = done
+        self.starred = starred
         self.created = created or datetime.now().isoformat()
 
     def to_dict(self):
         return {"id": self.id, "text": self.text, "category": self.category,
                 "priority": self.priority, "due": self.due, "done": self.done,
-                "created": self.created}
+                "starred": self.starred, "created": self.created}
 
     @staticmethod
     def from_dict(d):
         return Task(d.get("text", ""), d.get("category", "Personal"),
                      d.get("priority", "Medium"), d.get("due", ""),
-                     d.get("done", False), d.get("created"), d.get("id"))
+                     d.get("done", False), d.get("starred", False),
+                     d.get("created"), d.get("id"))
 
 
 class RoundedButton(tk.Canvas):
@@ -231,6 +241,13 @@ class Tasketo(tk.Tk):
         cat_menu = tk.OptionMenu(inner, self.cat_var, *self.categories)
         self._style_optionmenu(cat_menu, t)
         cat_menu.pack(side="left", padx=4)
+        self.cat_menu = cat_menu
+
+        add_cat_btn = RoundedButton(inner, "+ Cat", self._prompt_add_category,
+                                    bg=t["surface_alt"], fg=t["text"], hover_bg=t["border"],
+                                    width=68, height=32, radius=16,
+                                    font=("Segoe UI", 9, "bold"))
+        add_cat_btn.pack(side="left", padx=(0, 4))
 
         self.pri_var = tk.StringVar(value="Medium")
         pri_menu = tk.OptionMenu(inner, self.pri_var, *PRIORITIES)
@@ -266,7 +283,7 @@ class Tasketo(tk.Tk):
         self.search_entry = search_entry
 
         self.filter_buttons = {}
-        for mode in ["All", "Active", "Completed"]:
+        for mode in ["All", "Today", "Starred", "Active", "Completed"]:
             b = tk.Label(filt, text=mode, font=self.f_small, bg=t["bg"], fg=t["text_dim"],
                          cursor="hand2", padx=10, pady=4)
             b.pack(side="left", padx=2)
@@ -274,10 +291,15 @@ class Tasketo(tk.Tk):
             self.filter_buttons[mode] = b
 
         self.sort_var = tk.StringVar(value="Priority")
-        sort_menu = tk.OptionMenu(filt, self.sort_var, "Priority", "Due Date", "Newest",
+        sort_menu = tk.OptionMenu(filt, self.sort_var, "Starred", "Priority", "Due Date", "Newest",
                                    command=lambda v: self._refresh())
         self._style_optionmenu(sort_menu, t, small=True)
         sort_menu.pack(side="left", padx=(6, 0))
+
+        clear_btn = tk.Label(filt, text="Clear done", font=self.f_small, bg=t["bg"],
+                             fg=t["text_dim"], cursor="hand2", padx=10, pady=4)
+        clear_btn.pack(side="right", padx=2)
+        clear_btn.bind("<Button-1>", lambda e: self._clear_completed())
 
         # ===== Task list =====
         list_container = tk.Frame(self, bg=t["bg"])
@@ -333,8 +355,11 @@ class Tasketo(tk.Tk):
         c.create_oval(30, 30, 62, 62, fill=t["accent"], outline="")
         c.create_text(46, 46, text="⚡", font=("Segoe UI", 18, "bold"), fill="#ffffff")
 
+        active_count = len([x for x in self.tasks if not x.done])
+        due_today = len([x for x in self.tasks if x.due == date.today().isoformat() and not x.done])
+
         c.create_text(80, 32, text=APP_TITLE, font=self.f_logo, fill="#ffffff", anchor="w")
-        c.create_text(81, 60, text=f"Small wins, every day  ·  {self.accent_name} mode",
+        c.create_text(81, 60, text=f"{active_count} active · {due_today} due today · {self.accent_name} mode",
                       font=self.f_small, fill="#e5e7ffcc" if False else "#e9e9ff", anchor="w")
 
         # accent swatches (clickable dots)
@@ -572,6 +597,67 @@ class Tasketo(tk.Tk):
         RoundedButton(btn_row, "Cancel", win.destroy, bg=t["surface_alt"], fg=t["text"],
                       hover_bg=t["border"], width=90, height=34).pack(side="right")
 
+    def _prompt_add_category(self):
+        t = self.theme
+        win = tk.Toplevel(self)
+        win.title("Add category")
+        win.configure(bg=t["surface"])
+        win.geometry("320x140")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        tk.Label(win, text="New category", bg=t["surface"], fg=t["text_dim"], font=self.f_small).pack(
+            anchor="w", padx=16, pady=(16, 4))
+        cat_var = tk.StringVar()
+        entry = tk.Entry(win, textvariable=cat_var, font=self.f_body, bg=t["surface_alt"],
+                         fg=t["text"], relief="flat", insertbackground=t["text"])
+        entry.pack(fill="x", padx=16, ipady=6)
+        entry.focus_set()
+
+        def save_cat():
+            name = cat_var.get().strip()
+            if not name:
+                return
+            if name not in self.categories:
+                self.categories.append(name)
+                self._update_category_menu()
+                self.cat_var.set(name)
+                self._save()
+            win.destroy()
+
+        row = tk.Frame(win, bg=t["surface"])
+        row.pack(fill="x", pady=16, padx=16)
+        RoundedButton(row, "Save", save_cat, bg=t["accent"], fg="#fff",
+                      hover_bg=t["accent_hover"], glow=t["glow"], width=90, height=34).pack(
+            side="right", padx=4)
+        RoundedButton(row, "Cancel", win.destroy, bg=t["surface_alt"], fg=t["text"],
+                      hover_bg=t["border"], width=90, height=34).pack(side="right")
+
+    def _update_category_menu(self):
+        if not hasattr(self, "cat_menu"):
+            return
+        menu = self.cat_menu["menu"]
+        menu.delete(0, "end")
+        for cat in self.categories:
+            menu.add_command(label=cat, command=lambda value=cat: self.cat_var.set(value))
+
+    def _clear_completed(self):
+        if not any(t.done for t in self.tasks):
+            return
+        if not messagebox.askyesno("Clear completed tasks", "Delete all completed tasks?"):
+            return
+        self.tasks = [t for t in self.tasks if not t.done]
+        self._save()
+        self._refresh()
+
+    def _toggle_star(self, task_id):
+        for t in self.tasks:
+            if t.id == task_id:
+                t.starred = not t.starred
+        self._save()
+        self._refresh()
+
     def _on_search(self, event=None):
         val = self._real_value(self.search_entry)
         self.search_text = val.lower().strip()
@@ -607,12 +693,20 @@ class Tasketo(tk.Tk):
             tasks = [t for t in tasks if not t.done]
         elif self.filter_mode == "Completed":
             tasks = [t for t in tasks if t.done]
+        elif self.filter_mode == "Today":
+            today = date.today().isoformat()
+            tasks = [t for t in tasks if t.due == today and not t.done]
+        elif self.filter_mode == "Starred":
+            tasks = [t for t in tasks if t.starred]
         if self.search_text:
             tasks = [t for t in tasks if self.search_text in t.text.lower()
                      or self.search_text in t.category.lower()]
 
         sort_mode = self.sort_var.get() if hasattr(self, "sort_var") else "Priority"
-        if sort_mode == "Priority":
+        if sort_mode == "Starred":
+            tasks.sort(key=lambda t: (t.done, not t.starred,
+                                      PRIORITY_ORDER.get(t.priority, 1), t.created))
+        elif sort_mode == "Priority":
             tasks.sort(key=lambda t: (t.done, PRIORITY_ORDER.get(t.priority, 1)))
         elif sort_mode == "Due Date":
             tasks.sort(key=lambda t: (t.done, t.due == "", t.due))
@@ -642,8 +736,9 @@ class Tasketo(tk.Tk):
 
         total = len(self.tasks)
         done = len([x for x in self.tasks if x.done])
+        starred = len([x for x in self.tasks if x.starred])
         pct = (done / total * 100) if total else 0
-        self.stats_label.config(text=f"{done}/{total} completed  ·  {int(pct)}%")
+        self.stats_label.config(text=f"{done}/{total} completed  ·  {starred} starred  ·  {int(pct)}%")
         self._animate_progress(pct)
         self._paint_hero()
 
@@ -714,6 +809,13 @@ class Tasketo(tk.Tk):
             chk.create_line(7, 11, 10, 15, 15, 6, fill="#ffffff", width=2)
         chk.pack(side="left", padx=(0, 10))
         chk.bind("<Button-1>", lambda e, w=chk: self._toggle_done(task.id, w))
+
+        star_lbl = tk.Label(top_row, text="★" if task.starred else "☆",
+                             font=("Segoe UI", 12), bg=t["surface"],
+                             fg=t["accent"] if task.starred else t["text_dim"],
+                             cursor="hand2")
+        star_lbl.pack(side="left", padx=(0, 6))
+        star_lbl.bind("<Button-1>", lambda e, task_id=task.id: self._toggle_star(task_id))
 
         label_font = self.f_strike if task.done else self.f_body
         label_fg = t["done_text"] if task.done else t["text"]
