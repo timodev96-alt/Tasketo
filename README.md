@@ -4,7 +4,7 @@
 
 I learnd basics of Tkinter libs in Python to make the UI and ***With help from AI in the front end***. Besides that I did make the backend and how the app saves your tasks as JSON file so you can reach them after closing the app alone,
 
-![1783325239927](images/README/1783325239927.png)
+<img width="895" height="712" alt="image" src="https://github.com/user-attachments/assets/921643c7-35b2-453d-a96a-80b8e29a61f0" />
 
 ## What it actually does
 
@@ -46,4 +46,4 @@ brew install python-tk
 
 ### just edit the files and run `build.py`, you will find your version in `dist` folder !
 
-Alternatively, you can download the release and simply double-click the file to start using it immediately!
+Alternatively, you can download the [Release](https://github.com/timodev96-alt/Tasketo/releases/download/Tasketo/Tasketo.exe) and simply double-click the file to start using it immediately!
