@@ -74,6 +74,12 @@ def lerp_color(c1, c2, t):
     return rgb_to_hex((r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t))
 
 
+def rounded_rect_points(x1, y1, x2, y2, r):
+    """Point list for a smooth rounded rectangle, for use with create_polygon(smooth=True)."""
+    return [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+             x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+
+
 class Task:
     def __init__(self, text, category="Personal", priority="Medium",
                  due="", done=False, starred=False, created=None, task_id=None):
@@ -120,8 +126,7 @@ class RoundedButton(tk.Canvas):
         self.bind("<Leave>", lambda e: self._draw(self.bg_color, False))
 
     def _round_rect(self, x1, y1, x2, y2, r, **kw):
-        points = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
-                  x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+        points = rounded_rect_points(x1, y1, x2, y2, r)
         return self.create_polygon(points, smooth=True, **kw)
 
     def _draw(self, color, hovered=False):
@@ -137,6 +142,7 @@ class RoundedButton(tk.Canvas):
 class Tasketo(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.overrideredirect(True)
         self.title(f"{APP_TITLE}")
         self.geometry("900x720")
         self.minsize(740, 580)
@@ -160,6 +166,17 @@ class Tasketo(tk.Tk):
         self.bind("<Control-z>", lambda e: self._undo_delete())
 
     # ---------- theme ----------
+    def _move_window(self, event):
+        x = self.winfo_x() + (event.x - self._offsetx)
+        y = self.winfo_y() + (event.y - self._offsety)
+        self.geometry(f"+{x}+{y}")
+
+    def _start_move(self, event):
+        self._offsetx = event.x
+        self._offsety = event.y
+
+    def _close_app(self):
+        self.destroy()
     def _rebuild_theme(self):
         base = DARK_BASE if self.dark_mode else LIGHT_BASE
         acc = ACCENTS[self.accent_idx]
@@ -216,9 +233,13 @@ class Tasketo(tk.Tk):
         t = self.theme
 
         # ===== Gradient hero header =====
-        hero_h = 92
+        hero_h = 100
         self.hero = tk.Canvas(self, height=hero_h, highlightthickness=0, bd=0)
         self.hero.pack(fill="x")
+        self.hero.bind("<ButtonPress-1>", lambda e: self.hero.bind("<B1-Motion>", self._move_window))
+        self.hero.bind("<ButtonPress-1>", self._start_move)
+        self.hero.bind("<B1-Motion>", self._move_window)        
+        self.hero.tag_bind("close", "<Button-1>", lambda e: self._close_app())
         self.hero.bind("<Configure>", lambda e: self._paint_hero())
 
         # ===== Add-task card =====
@@ -335,62 +356,109 @@ class Tasketo(tk.Tk):
         self._paint_hero()
 
     def _paint_hero(self):
+        """Draws the header: gradient wash, glass shimmer, glowing logo badge,
+        title with a drop shadow, a live status line, and a frosted control
+        pill on the right holding the accent swatches + theme toggle."""
         c = self.hero
         c.delete("all")
         t = self.theme
         w = c.winfo_width() or 900
-        h = int(c["height"]) if c["height"] else 92
-        h = 92
-        c.configure(bg=t["grad"])
-        steps = 60
+        h = 100
+        c.configure(height=h, bg=t["grad"])
+
+        shadow_tone = lerp_color(t["grad"], "#000000", 0.35)
+
+        # ---- base gradient wash (deep -> accent), slightly eased ----
+        steps = 72
         for i in range(steps):
             frac = i / steps
-            color = lerp_color(t["grad"], t["accent"], frac ** 1.4)
+            color = lerp_color(t["grad"], t["accent"], frac ** 1.6)
             x0 = int(w * i / steps)
             x1 = int(w * (i + 1) / steps) + 1
             c.create_rectangle(x0, 0, x1, h, fill=color, outline="")
 
-        # glowing logo mark
-        c.create_oval(24, 24, 68, 68, fill=t["glow"], outline="")
-        c.create_oval(30, 30, 62, 62, fill=t["accent"], outline="")
-        c.create_text(46, 46, text="⚡", font=("Segoe UI", 18, "bold"), fill="#ffffff")
+        # ---- diagonal "glass" shimmer sweeping across the banner ----
+        shimmer_color = lerp_color(t["accent"], "#ffffff", 0.55)
+        band_w = max(80, int(w * 0.22))
+        bx = w * 0.32
+        c.create_polygon(
+            bx, -4, bx + band_w, -4, bx + band_w - 55, h + 4, bx - 55, h + 4,
+            fill=shimmer_color, outline="", stipple="gray25"
+        )
+
+        # ---- crisp accent line along the bottom edge ----
+        c.create_rectangle(0, h - 3, w, h, fill=t["accent"], outline="")
+
+        # ---- logo badge: soft shadow + glow ring + core ----
+        bx0, by0, br = 28, h / 2, 23
+        c.create_oval(bx0 - br + 3, by0 - br + 5, bx0 + br + 3, by0 + br + 5,
+                      fill=shadow_tone, outline="")
+        c.create_oval(bx0 - br, by0 - br, bx0 + br, by0 + br, fill=t["glow"], outline="")
+        c.create_oval(bx0 - br + 6, by0 - br + 6, bx0 + br - 6, by0 + br - 6,
+                      fill=t["accent"], outline="")
+        c.create_text(bx0, by0, text="⚡", font=("Segoe UI", 18, "bold"), fill="#ffffff")
+
+        # ---- title with a subtle drop shadow for depth ----
+        title_x = bx0 + br + 16
+        c.create_text(title_x + 1, by0 - 14 + 1, text=APP_TITLE, font=self.f_logo,
+                      fill=shadow_tone, anchor="w")
+        c.create_text(title_x, by0 - 14, text=APP_TITLE, font=self.f_logo,
+                      fill="#ffffff", anchor="w")
 
         active_count = len([x for x in self.tasks if not x.done])
         due_today = len([x for x in self.tasks if x.due == date.today().isoformat() and not x.done])
+        done_count = len([x for x in self.tasks if x.done])
+        status = (f"{active_count} active   ·   {due_today} due today   ·   "
+                  f"🔥 {done_count} all-time   ·   {self.accent_name} mode")
+        c.create_text(title_x, by0 + 15, text=status, font=self.f_small, fill="#f1f1ff", anchor="w")
+        dot_r = 8
+        dot_gap = 24
+        n = len(ACCENTS)
+        pad = 14
+        pill_w = pad * 2 + (n - 1) * dot_gap + dot_r * 2 + 14 + 30
+        pill_h = 44
+        pill_x2 = w - 18
+        pill_x1 = pill_x2 - pill_w
+        pill_y1 = h / 2 - pill_h / 2
+        pill_y2 = h / 2 + pill_h / 2
 
-        c.create_text(80, 32, text=APP_TITLE, font=self.f_logo, fill="#ffffff", anchor="w")
-        c.create_text(81, 60, text=f"{active_count} active · {due_today} due today · {self.accent_name} mode",
-                      font=self.f_small, fill="#e5e7ffcc" if False else "#e9e9ff", anchor="w")
+        panel_fill = lerp_color(t["grad"], "#ffffff", 0.16)
+        c.create_polygon(rounded_rect_points(pill_x1, pill_y1, pill_x2, pill_y2, pill_h / 2),
+                          smooth=True, fill=panel_fill, outline="", stipple="gray50")
 
-        # accent swatches (clickable dots)
-        dot_r = 9
-        start_x = w - 210
+        start_x = pill_x1 + pad + dot_r
         for i, acc in enumerate(ACCENTS):
-            cx = start_x + i * 26
-            cy = 30
-            outline = "#ffffff" if i == self.accent_idx else ""
-            width = 2 if i == self.accent_idx else 0
+            cx = start_x + i * dot_gap
+            cy = h / 2
+            is_active = i == self.accent_idx
             tag = f"swatch_{i}"
+            if is_active:
+                c.create_oval(cx - dot_r - 4, cy - dot_r - 4, cx + dot_r + 4, cy + dot_r + 4,
+                              outline="#ffffff", width=2, tags=tag)
             c.create_oval(cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r,
-                          fill=acc["accent"], outline=outline, width=width, tags=tag)
+                          fill=acc["accent"], outline="", tags=tag)
             c.tag_bind(tag, "<Button-1>", lambda e, idx=i: self._set_accent(idx))
+            c.tag_bind(tag, "<Enter>", lambda e: c.configure(cursor="hand2"))
+            c.tag_bind(tag, "<Leave>", lambda e: c.configure(cursor=""))
 
-        # theme toggle
-        toggle_x = w - 40
-        c.create_text(toggle_x, 30, text="☀️" if self.dark_mode else "🌙",
+        sep_x = start_x + (n - 1) * dot_gap + dot_r + 12
+        c.create_line(sep_x, pill_y1 + 9, sep_x, pill_y2 - 9,
+                      fill=lerp_color(panel_fill, "#000000", 0.25))
+
+        toggle_x = sep_x + 20
+        c.create_text(toggle_x, h / 2, text="☀️" if self.dark_mode else "🌙",
                       font=("Segoe UI", 14), tags="theme_toggle")
         c.tag_bind("theme_toggle", "<Button-1>", lambda e: self._toggle_theme())
-
-        # streak / completed badge
-        done_count = len([x for x in self.tasks if x.done])
-        c.create_text(w - 210, 62, text=f"🔥 {done_count} completed all-time",
-                      font=self.f_small, fill="#f1f1ffcc" if False else "#f0f0ff", anchor="w")
-
-        for i in range(len(ACCENTS)):
-            c.tag_bind(f"swatch_{i}", "<Enter>", lambda e: c.configure(cursor="hand2"))
-            c.tag_bind(f"swatch_{i}", "<Leave>", lambda e: c.configure(cursor=""))
         c.tag_bind("theme_toggle", "<Enter>", lambda e: c.configure(cursor="hand2"))
         c.tag_bind("theme_toggle", "<Leave>", lambda e: c.configure(cursor=""))
+        close_x = w - 40
+        close_y = 30
+        c.create_oval(close_x-12, close_y-12, close_x+12, close_y+12, fill=t["danger"], outline="")
+        c.create_text(close_x, close_y, text="✕", fill="white", font=("Segoe UI", 10, "bold"), tags="close_btn")
+
+        c.tag_bind("close_btn", "<Button-1>", lambda e: self._close_app())
+        c.tag_bind("close_btn", "<Enter>", lambda e: c.configure(cursor="hand2"))
+        c.tag_bind("close_btn", "<Leave>", lambda e: c.configure(cursor=""))
 
     def _set_accent(self, idx):
         self.accent_idx = idx
