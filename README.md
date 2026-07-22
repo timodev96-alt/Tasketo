@@ -2,7 +2,7 @@
 
 ### A Python To-Do app that's actually fun to use.
 
-I recently picked up the basics of Tkinter to build the UI—with a little help from AI to get the styling looking sharp. I handled the backend logic entirely on my own, including the JSON data-saving system so your tasks stick around after you close the app.
+I recently picked up the basics of Tkinter to build the UI - with a little help from AI to get the styling looking sharp. I handled the backend logic entirely on my own, including the JSON data-saving system so your tasks stick around after you close the app.
 
 <img width="895" height="712" alt="image" src="https://github.com/user-attachments/assets/921643c7-35b2-453d-a96a-80b8e29a61f0" />
 
