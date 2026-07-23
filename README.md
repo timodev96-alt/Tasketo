@@ -9,7 +9,6 @@ I recently picked up the basics of Tkinter to build the UI - with a little help 
 ## How Does it work
 
 * **Add tasks** with categories, priority levels, and due dates
-* **Confetti check-offs** because checking items off should feel rewarding
 * **Filters & search** (All, Today, Starred, Active, Completed, + live search)
 * **Flexaible sorting** by stars, priority, due date, or newest
 * **Star important tasks** to pin them up top
@@ -49,3 +48,6 @@ brew install python-tk
 ### Just edit the files and run `build.py`. Your freshly built app will be waiting in the `dist` folder!
 
 Alternatively, you can just grab the ready-to-use executable from the [Releases](https://github.com/timodev96-alt/Tasketo/releases/download/Tasketo/Tasketo.exe) page and double-click to launch it instantly.
+
+
+### Note: "D:" Hactime Project is me working on a flashdrive on my laptop then copy them to the pc
